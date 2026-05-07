@@ -9,6 +9,7 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 REFRESH_MS = 500
 
 STATE_LABEL = {
+    "pending": "Pending",
     "waiting": "Waiting",
     "active": "Active",
     "mission accomplished": "Done",
@@ -17,6 +18,7 @@ STATE_LABEL = {
 }
 
 STATE_ICON = {
+    "pending": "view-list-symbolic",
     "waiting": "preferences-system-time-symbolic",
     "active": "media-playback-start-symbolic",
     "mission accomplished": "emblem-ok-symbolic",
@@ -47,8 +49,9 @@ EXPANDABLE_COMMANDS = {
 class _QueueRow:
     """Wraps a QueuedTask. Reused across refreshes."""
 
-    def __init__(self, task):
+    def __init__(self, task, on_remove):
         self._task = task
+        self._on_remove = on_remove
         self._sub_rows: list[tuple[Adw.ActionRow, Gtk.Image]] = []
 
         title = task.description or task.fn_name
@@ -69,24 +72,28 @@ class _QueueRow:
             icon_name="preferences-system-time-symbolic",
             valign=Gtk.Align.CENTER,
         )
-        self._cancel_btn = Gtk.Button(
-            icon_name="process-stop-symbolic",
-            tooltip_text="Cancel",
+        self._remove_btn = Gtk.Button(
+            icon_name="window-close-symbolic",
+            tooltip_text="Remove from queue",
             valign=Gtk.Align.CENTER,
             css_classes=["flat"],
         )
-        self._cancel_btn.connect("clicked", self._on_cancel)
+        self._remove_btn.connect("clicked", self._on_remove_clicked)
         self._row.add_suffix(self._progress)
         self._row.add_suffix(self._status_icon)
-        self._row.add_suffix(self._cancel_btn)
+        self._row.add_suffix(self._remove_btn)
         self.update()
 
-    def _on_cancel(self, _button) -> None:
-        self._task.cancelled = True
+    def _on_remove_clicked(self, _button) -> None:
+        self._on_remove(self._task)
 
     @property
     def widget(self) -> Gtk.Widget:
         return self._row
+
+    @property
+    def task(self):
+        return self._task
 
     # --- Updates ----------------------------------------------------------
 
@@ -125,13 +132,9 @@ class _QueueRow:
 
         self._row.set_subtitle(GLib.markup_escape_text(subtitle))
 
-        cancellable = state not in FINAL_STATES and not task.cancelled
-        self._cancel_btn.set_visible(cancellable)
-
     def _sync_subtasks(self) -> None:
         subtasks = self._task.subtasks or []
 
-        # Append rows for any new subtasks we haven't seen yet.
         for i in range(len(self._sub_rows), len(subtasks)):
             sub = subtasks[i]
             sub_row = Adw.ActionRow(
@@ -146,7 +149,6 @@ class _QueueRow:
             self._row.add_row(sub_row)
             self._sub_rows.append((sub_row, icon))
 
-        # Refresh state on existing rows.
         for i, (sub_row, icon) in enumerate(self._sub_rows):
             sub = subtasks[i]
             icon.set_from_icon_name(
@@ -162,15 +164,18 @@ class _QueueRow:
 class QueuePage(Gtk.Box):
     """Live list of all tasks ever submitted, newest first."""
 
-    def __init__(self):
+    def __init__(self, on_toast=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self._on_toast = on_toast or (lambda _msg: None)
 
         self._rows: dict[int, _QueueRow] = {}
+
+        self.append(self._build_toolbar())
 
         self._listbox = Gtk.ListBox(
             css_classes=["boxed-list"],
             selection_mode=Gtk.SelectionMode.NONE,
-            margin_top=12, margin_bottom=12,
+            margin_top=6, margin_bottom=12,
             margin_start=12, margin_end=12,
         )
 
@@ -195,10 +200,69 @@ class QueuePage(Gtk.Box):
 
         GLib.timeout_add(REFRESH_MS, self._refresh)
 
+    # --- Toolbar ----------------------------------------------------------
+
+    def _build_toolbar(self) -> Gtk.Widget:
+        bar = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
+            margin_top=12, margin_start=12, margin_end=12,
+        )
+        self._start_btn = Gtk.Button(
+            label="Start downloads",
+            css_classes=["suggested-action"],
+        )
+        self._start_btn.connect("clicked", self._on_start)
+        bar.append(self._start_btn)
+
+        self._clear_done_btn = Gtk.Button(label="Clear completed")
+        self._clear_done_btn.connect("clicked", self._on_clear_completed)
+        bar.append(self._clear_done_btn)
+
+        self._clear_all_btn = Gtk.Button(
+            label="Clear all",
+            css_classes=["destructive-action"],
+        )
+        self._clear_all_btn.connect("clicked", self._on_clear_all)
+        bar.append(self._clear_all_btn)
+
+        return bar
+
+    def _on_start(self, _button) -> None:
+        from deezer_downloader.web.music_backend import sched
+        started = sched.start_pending()
+        if started == 0:
+            self._on_toast("Nothing to start")
+        else:
+            self._on_toast(f"Started {started} download{'s' if started != 1 else ''}")
+
+    def _on_clear_completed(self, _button) -> None:
+        from deezer_downloader.web.music_backend import sched
+        for task in list(sched.all_tasks):
+            if task.state in FINAL_STATES:
+                sched.remove_task(task)
+        self._prune_rows(sched)
+
+    def _on_clear_all(self, _button) -> None:
+        from deezer_downloader.web.music_backend import sched
+        for task in list(sched.all_tasks):
+            sched.remove_task(task)
+        self._prune_rows(sched)
+
+    # --- Per-row remove ---------------------------------------------------
+
+    def _on_row_remove(self, task) -> None:
+        from deezer_downloader.web.music_backend import sched
+        sched.remove_task(task)
+        self._prune_rows(sched)
+
+    # --- Refresh / sync ---------------------------------------------------
+
     def _refresh(self) -> bool:
         from deezer_downloader.web.music_backend import sched
 
         tasks = list(sched.all_tasks)
+        self._update_toolbar_sensitivity(tasks)
+
         if not tasks:
             self._stack.set_visible_child_name("empty")
             return True
@@ -209,9 +273,28 @@ class QueuePage(Gtk.Box):
             key = id(task)
             row = self._rows.get(key)
             if row is None:
-                row = _QueueRow(task)
+                row = _QueueRow(task, self._on_row_remove)
                 self._rows[key] = row
                 self._listbox.prepend(row.widget)
             else:
                 row.update()
+
+        self._prune_rows(sched)
         return True
+
+    def _update_toolbar_sensitivity(self, tasks) -> None:
+        any_pending = any(t.state == "pending" for t in tasks)
+        any_done = any(t.state in FINAL_STATES for t in tasks)
+        any_at_all = bool(tasks)
+        self._start_btn.set_sensitive(any_pending)
+        self._clear_done_btn.set_sensitive(any_done)
+        self._clear_all_btn.set_sensitive(any_at_all)
+
+    def _prune_rows(self, sched) -> None:
+        """Drop rows whose backing task is no longer in all_tasks."""
+        live_ids = {id(task) for task in sched.all_tasks}
+        for key in list(self._rows.keys()):
+            if key in live_ids:
+                continue
+            row = self._rows.pop(key)
+            self._listbox.remove(row.widget)

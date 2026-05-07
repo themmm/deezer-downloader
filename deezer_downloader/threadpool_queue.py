@@ -36,6 +36,36 @@ class ThreadpoolScheduler:
         self.all_tasks.append(q)
         return q
 
+    def add_pending(self, description, command, **kwargs):
+        """Create a task in 'pending' state. It is appended to all_tasks but
+        not pushed onto the worker queue, so workers don't pick it up until
+        start_pending() is called."""
+        q = QueuedTask(description, command, self.commands[command], **kwargs)
+        q.state = "pending"
+        self.all_tasks.append(q)
+        return q
+
+    def start_pending(self) -> int:
+        """Move pending tasks onto the worker queue. Returns how many were
+        started."""
+        started = 0
+        for task in self.all_tasks:
+            if task.state == "pending" and not task.cancelled:
+                task.state = "waiting"
+                self.task_queue.put(task)
+                started += 1
+        return started
+
+    def remove_task(self, task) -> None:
+        """Cancel and remove a task from all_tasks. Workers see the cancel
+        flag when they pull the task and skip it; in-progress tasks honour
+        the flag at the next iteration boundary."""
+        task.cancelled = True
+        try:
+            self.all_tasks.remove(task)
+        except ValueError:
+            pass
+
     def register_command(self):
         def decorator(fun):
             self.commands[fun.__name__] = fun

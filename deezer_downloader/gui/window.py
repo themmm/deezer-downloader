@@ -55,7 +55,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._search, "search", "Search", "system-search-symbolic"
         )
         view_stack.add_titled_with_icon(
-            QueuePage(), "queue", "Queue",
+            QueuePage(on_toast=self._toast), "queue", "Queue",
             "folder-download-symbolic"
         )
 
@@ -124,7 +124,7 @@ class MainWindow(Adw.ApplicationWindow):
             return
         from deezer_downloader.web.music_backend import sched
         try:
-            sched.enqueue_task(
+            sched.add_pending(
                 f"Playlist: {raw}",
                 "download_deezer_playlist_and_queue_and_zip",
                 playlist_id=raw,
@@ -134,7 +134,7 @@ class MainWindow(Adw.ApplicationWindow):
         except Exception as exc:
             self._toast(f"Could not queue: {exc}")
             return
-        self._toast("Queued playlist")
+        self._toast("Added playlist to queue")
 
     def _enqueue_favorites(self, raw: str) -> None:
         user_id = _extract_first_number(raw) if raw else None
@@ -146,7 +146,7 @@ class MainWindow(Adw.ApplicationWindow):
             return
         from deezer_downloader.web.music_backend import sched
         try:
-            sched.enqueue_task(
+            sched.add_pending(
                 f"Favorites of user {user_id}",
                 "download_deezer_favorites",
                 user_id=user_id,
@@ -156,7 +156,7 @@ class MainWindow(Adw.ApplicationWindow):
         except Exception as exc:
             self._toast(f"Could not queue: {exc}")
             return
-        self._toast(f"Queued favorites of user {user_id}")
+        self._toast(f"Added favorites of user {user_id} to queue")
 
     # --- Enqueue -----------------------------------------------------------
 
@@ -165,22 +165,22 @@ class MainWindow(Adw.ApplicationWindow):
 
         try:
             if item.id_type == "track":
-                sched.enqueue_task(
+                sched.add_pending(
                     f"Track: {item.artist} – {item.title}",
                     "download_deezer_song_and_queue",
                     track_id=int(item.id),
                     add_to_playlist=False,
                 )
-                msg = f"Queued: {item.title}"
+                msg = f"Added to queue: {item.title}"
             elif item.id_type == "album":
-                sched.enqueue_task(
+                sched.add_pending(
                     f"Album: {item.artist} – {item.album}",
                     "download_deezer_album_and_queue_and_zip",
                     album_id=int(item.id),
                     add_to_playlist=False,
                     create_zip=False,
                 )
-                msg = f"Queued: {item.album}"
+                msg = f"Added to queue: {item.album}"
             else:
                 return
         except Exception as exc:
