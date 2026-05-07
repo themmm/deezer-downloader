@@ -27,6 +27,7 @@
 - [Settings](#settings)
 - [Specific use cases](#specific-use-cases)
   - [Run with Docker](#run-with-docker)
+  - [Native desktop app (Linux / GTK4)](#native-desktop-app-linux--gtk4)
   - [Run with Vagrant](#run-with-vagrant)
   - [Run as a service](#run-as-a-service)
   - [Developer setup](#developer-setup)
@@ -126,6 +127,44 @@ mkdir downloads
 sudo docker run -p 5000:5000 --volume $(pwd)/downloads/:/mnt/deezer-downloader --env DEEZER_COOKIE_ARL=your_ARL_cookie kmille2/deezer-downloader:latest 
 xdg-open http://localhost:5000
 ```
+
+### Native desktop app (Linux / GTK4)
+
+Work in progress: a native GTK4 / libadwaita frontend that talks to the same
+download core as the web UI, without running an HTTP server in the
+background.
+
+System dependencies (one-time):
+
+```bash
+# Arch / CachyOS
+sudo pacman -S gtk4 libadwaita python-gobject ffmpeg yt-dlp
+
+# Debian / Ubuntu
+sudo apt-get install gir1.2-gtk-4.0 gir1.2-adw-1 python3-gi ffmpeg yt-dlp
+
+# Fedora
+sudo dnf install gtk4 libadwaita python3-gobject ffmpeg yt-dlp
+```
+
+Because PyGObject is taken from the system, run the app with the
+distro's Python (or create the venv with `--system-site-packages`):
+
+```bash
+python -m venv --system-site-packages .venv
+.venv/bin/pip install -e .
+.venv/bin/deezer-downloader-gui
+```
+
+On first launch a default config is created at
+`$XDG_CONFIG_HOME/deezer-downloader/deezer-downloader.ini` (usually
+`~/.config/deezer-downloader/deezer-downloader.ini`) with a download
+directory at `~/Music/deezer-downloader`. You still need to fill in the
+`arl` cookie under `[deezer]` before downloads work — a settings dialog
+that handles this from the UI is on the roadmap.
+
+The existing `deezer-downloader --config ...` server mode and the Docker
+image are unchanged.
 
 ### Run with Vagrant
 
