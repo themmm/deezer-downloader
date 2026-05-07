@@ -9,6 +9,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gtk  # noqa: E402
 
+from deezer_downloader.gui.queue import QueuePage
 from deezer_downloader.gui.result_item import SearchResult
 from deezer_downloader.gui.search import SearchPage
 
@@ -42,7 +43,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._search, "search", "Search", "system-search-symbolic"
         )
         view_stack.add_titled_with_icon(
-            self._build_queue_placeholder(), "queue", "Queue",
+            QueuePage(), "queue", "Queue",
             "folder-download-symbolic"
         )
 
@@ -68,13 +69,6 @@ class MainWindow(Adw.ApplicationWindow):
                 "then restart the app.\n\n"
                 f"{config_path}"
             ),
-        )
-
-    def _build_queue_placeholder(self) -> Gtk.Widget:
-        return Adw.StatusPage(
-            icon_name="folder-download-symbolic",
-            title="Queue",
-            description="Active downloads will show up here in the next slice.",
         )
 
     # --- Enqueue -----------------------------------------------------------
