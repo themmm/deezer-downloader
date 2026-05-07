@@ -366,14 +366,26 @@ def deezer_search(search, search_type):
     else:
         url = f"https://api.deezer.com/search/{search_type}?q={search}"
 
+    # ARTIST_ALBUM returns 25 albums per page; follow `next` so prolific
+    # artists don't get cut off. Other search types stay single-page to
+    # avoid pulling thousands of results.
+    paginate = search_type == TYPE_ARTIST_ALBUM
     try:
-        resp = session.get(url)
-        resp.raise_for_status()
-        data = resp.json()
-        if search_type == TYPE_ALBUM_TRACK:
-            data = data["tracks"]['data']
-        else:
-            data = data['data']
+        data = []
+        current_url = url
+        while current_url:
+            resp = session.get(current_url)
+            resp.raise_for_status()
+            payload = resp.json()
+            if search_type == TYPE_ALBUM_TRACK:
+                data = payload["tracks"]['data']
+                break
+            data.extend(payload['data'])
+            if not paginate:
+                break
+            current_url = payload.get('next')
+            if len(data) >= 500:  # safety cap
+                break
     except (requests.exceptions.RequestException, KeyError) as e:
         print(f"ERROR: Could not search for music: {e}")
         return []

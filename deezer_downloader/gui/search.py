@@ -215,8 +215,11 @@ class SearchPage(Gtk.Box):
         sub_stack.add_named(scroller, "results")
         sub_stack.set_visible_child_name("loading")
 
+        sub_header = Adw.HeaderBar()
+        sub_header.set_show_start_title_buttons(False)
+        sub_header.set_show_end_title_buttons(False)
         toolbar = Adw.ToolbarView()
-        toolbar.add_top_bar(Adw.HeaderBar())
+        toolbar.add_top_bar(sub_header)
         toolbar.set_content(sub_stack)
 
         page = Adw.NavigationPage(child=toolbar, title=page_title)
