@@ -22,9 +22,14 @@ SEARCH_TYPES = [
 class SearchPage(Gtk.Box):
     """Search bar, type filter, result list and artist drilldown sub-pages."""
 
-    def __init__(self, on_enqueue: Callable[[SearchResult], None]):
+    def __init__(self,
+                 on_enqueue: Callable[[SearchResult], None],
+                 on_playlist: Callable[[str], None],
+                 on_favorites: Callable[[str], None]):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self._on_enqueue = on_enqueue
+        self._on_playlist = on_playlist
+        self._on_favorites = on_favorites
         self._store = Gio.ListStore.new(SearchResult)
 
         self._nav = Adw.NavigationView(vexpand=True, hexpand=True)
@@ -38,8 +43,56 @@ class SearchPage(Gtk.Box):
     def _build_main_content(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         box.append(self._build_search_bar())
+        box.append(self._build_direct_panel())
         box.append(self._build_results_view())
         return box
+
+    def _build_direct_panel(self) -> Gtk.Widget:
+        wrapper = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=4,
+            margin_top=2, margin_bottom=6,
+            margin_start=12, margin_end=12,
+        )
+
+        playlist_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                               spacing=6)
+        self._playlist_entry = Gtk.Entry(
+            hexpand=True,
+            placeholder_text="Deezer playlist URL or ID",
+        )
+        self._playlist_entry.connect("activate", self._on_playlist_clicked)
+        pl_btn = Gtk.Button(label="Add playlist",
+                            tooltip_text="Add to queue")
+        pl_btn.connect("clicked", self._on_playlist_clicked)
+        playlist_row.append(self._playlist_entry)
+        playlist_row.append(pl_btn)
+        wrapper.append(playlist_row)
+
+        favorites_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                spacing=6)
+        self._favorites_entry = Gtk.Entry(
+            hexpand=True,
+            placeholder_text="Profile URL or user id (blank = your own)",
+        )
+        self._favorites_entry.connect("activate", self._on_favorites_clicked)
+        fav_btn = Gtk.Button(label="Add favorites",
+                             tooltip_text="Add to queue")
+        fav_btn.connect("clicked", self._on_favorites_clicked)
+        favorites_row.append(self._favorites_entry)
+        favorites_row.append(fav_btn)
+        wrapper.append(favorites_row)
+
+        return wrapper
+
+    def _on_playlist_clicked(self, _widget) -> None:
+        text = self._playlist_entry.get_text().strip()
+        self._on_playlist(text)
+        self._playlist_entry.set_text("")
+
+    def _on_favorites_clicked(self, _widget) -> None:
+        text = self._favorites_entry.get_text().strip()
+        self._on_favorites(text)
+        self._favorites_entry.set_text("")
 
     def _build_search_bar(self) -> Gtk.Widget:
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6,

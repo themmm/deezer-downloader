@@ -8,15 +8,17 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, Gtk  # noqa: E402
 
-from deezer_downloader.gui.dialogs import (
-    extract_first_number,
-    prompt_favorites,
-    prompt_playlist,
-)
+import re
+
 from deezer_downloader.gui.preferences import PreferencesDialog
 from deezer_downloader.gui.queue import QueuePage
 from deezer_downloader.gui.result_item import SearchResult
 from deezer_downloader.gui.search import SearchPage
+
+
+def _extract_first_number(text: str):
+    match = re.search(r"\d+", text)
+    return match.group(0) if match else None
 
 
 class MainWindow(Adw.ApplicationWindow):
@@ -42,7 +44,11 @@ class MainWindow(Adw.ApplicationWindow):
             self.set_content(self._toast_overlay)
             return
 
-        self._search = SearchPage(on_enqueue=self._enqueue_download)
+        self._search = SearchPage(
+            on_enqueue=self._enqueue_download,
+            on_playlist=self._enqueue_playlist,
+            on_favorites=self._enqueue_favorites,
+        )
 
         view_stack = Adw.ViewStack()
         view_stack.add_titled_with_icon(
@@ -74,10 +80,6 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_primary_menu_button(self) -> Gtk.MenuButton:
         menu = Gio.Menu()
-        downloads_section = Gio.Menu()
-        downloads_section.append("Download playlist…", "app.playlist")
-        downloads_section.append("Download favorites…", "app.favorites")
-        menu.append_section(None, downloads_section)
         menu.append("Preferences", "app.preferences")
         button = Gtk.MenuButton(
             icon_name="open-menu-symbolic",
@@ -113,17 +115,11 @@ class MainWindow(Adw.ApplicationWindow):
 
     # --- Direct downloads --------------------------------------------------
 
-    def open_playlist_dialog(self) -> None:
-        prompt_playlist(self, self._enqueue_playlist)
-
-    def open_favorites_dialog(self) -> None:
-        prompt_favorites(self, self._enqueue_favorites)
-
     def _enqueue_playlist(self, raw: str) -> None:
         if not raw:
             self._toast("Please enter a playlist URL or ID")
             return
-        if extract_first_number(raw) is None:
+        if _extract_first_number(raw) is None:
             self._toast("Could not find a playlist ID in the input")
             return
         from deezer_downloader.web.music_backend import sched
@@ -141,7 +137,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._toast("Queued playlist")
 
     def _enqueue_favorites(self, raw: str) -> None:
-        user_id = extract_first_number(raw) if raw else None
+        user_id = _extract_first_number(raw) if raw else None
         if user_id is None:
             from deezer_downloader.deezer import get_my_user_id
             user_id = get_my_user_id()
