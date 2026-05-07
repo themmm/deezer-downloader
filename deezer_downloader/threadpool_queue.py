@@ -90,6 +90,10 @@ class QueuedTask:
         self.ts_queued = time.time()
         self.ts_started = 0
         self.ts_finished = 0
+        # Per-item state for tasks that download many things (album,
+        # playlist, favorites). Each entry: {"label": str, "state": str,
+        # "error": str | None}. ``state`` is one of waiting/active/done/failed.
+        self.subtasks = []
 
     def exec(self):
         return self.fn(**self.kwargs)
@@ -98,3 +102,22 @@ class QueuedTask:
 def report_progress(value, maximum):
     local_obj.current_task.progress = value
     local_obj.current_task.progress_maximum = maximum
+
+
+def init_subtasks(labels):
+    """Initialise per-item subtasks on the current task in the 'waiting'
+    state. Pass a list of human-readable labels (one per item)."""
+    local_obj.current_task.subtasks = [
+        {"label": label, "state": "waiting", "error": None}
+        for label in labels
+    ]
+
+
+def set_subtask_state(index, state, error=None):
+    """Update one subtask. ``state`` is one of waiting/active/done/failed."""
+    subtasks = getattr(local_obj.current_task, "subtasks", None)
+    if not subtasks or not (0 <= index < len(subtasks)):
+        return
+    subtasks[index]["state"] = state
+    if error is not None:
+        subtasks[index]["error"] = str(error)

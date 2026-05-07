@@ -12,7 +12,12 @@ from deezer_downloader.deezer import TYPE_TRACK, TYPE_ALBUM, TYPE_PLAYLIST, get_
 from deezer_downloader.deezer import Deezer403Exception, Deezer404Exception, DeezerApiException
 from deezer_downloader.deezer import get_file_extension
 
-from deezer_downloader.threadpool_queue import ThreadpoolScheduler, report_progress
+from deezer_downloader.threadpool_queue import (
+    ThreadpoolScheduler,
+    init_subtasks,
+    report_progress,
+    set_subtask_state,
+)
 sched = ThreadpoolScheduler()
 
 
@@ -64,6 +69,20 @@ def update_mpd_db(songs, add_to_playlist):
                 print("Added to mpd playlist: '{}'".format(song))
             except mpd.base.CommandError as mpd_error:
                 print("ERROR adding '{}' to playlist: {}".format(song, mpd_error))
+
+
+def _song_label(song, with_track_no: bool = False) -> str:
+    """Short human-readable label for a song dict, used in queue subtasks."""
+    title = song.get("SNG_TITLE", "?")
+    artist = song.get("ART_NAME", "")
+    if with_track_no and song.get("TRACK_NUMBER"):
+        try:
+            return f"{int(song['TRACK_NUMBER']):02d}. {title}"
+        except (TypeError, ValueError):
+            pass
+    if artist:
+        return f"{artist} – {title}"
+    return title
 
 
 def clean_filename(path):
@@ -162,15 +181,19 @@ def download_deezer_song_and_queue(track_id, add_to_playlist):
 @sched.register_command()
 def download_deezer_album_and_queue_and_zip(album_id, add_to_playlist, create_zip):
     songs = get_song_infos_from_deezer_website(TYPE_ALBUM, album_id)
+    init_subtasks([_song_label(song, with_track_no=True) for song in songs])
     songs_absolute_location = []
     for i, song in enumerate(songs):
         report_progress(i, len(songs))
         assert type(song) is dict
+        set_subtask_state(i, "active")
         try:
             absolute_filename = download_song_and_get_absolute_filename(TYPE_ALBUM, song)
             songs_absolute_location.append(absolute_filename)
+            set_subtask_state(i, "done")
         except Exception as e:
             print(f"Warning: {e}. Continuing with album...")
+            set_subtask_state(i, "failed", error=e)
     update_mpd_db(songs_absolute_location, add_to_playlist)
     if create_zip:
         return [create_zip_file(songs_absolute_location)]
@@ -180,14 +203,18 @@ def download_deezer_album_and_queue_and_zip(album_id, add_to_playlist, create_zi
 @sched.register_command()
 def download_deezer_playlist_and_queue_and_zip(playlist_id, add_to_playlist, create_zip):
     playlist_name, songs = parse_deezer_playlist(playlist_id)
+    init_subtasks([_song_label(song) for song in songs])
     songs_absolute_location = []
     for i, song in enumerate(songs):
         report_progress(i, len(songs))
+        set_subtask_state(i, "active")
         try:
             absolute_filename = download_song_and_get_absolute_filename(TYPE_PLAYLIST, song, playlist_name)
             songs_absolute_location.append(absolute_filename)
+            set_subtask_state(i, "done")
         except Exception as e:
             print(f"Warning: {e}. Continuing with playlist...")
+            set_subtask_state(i, "failed", error=e)
     update_mpd_db(songs_absolute_location, add_to_playlist)
     songs_with_m3u8_file = create_m3u8_file(songs_absolute_location)
     if create_zip:
@@ -232,18 +259,23 @@ def download_deezer_favorites(user_id: str, add_to_playlist: bool, create_zip: b
     songs_absolute_location = []
     output_directory = f"favorites_{user_id}"
     favorite_songs = get_deezer_favorites(user_id)
+    init_subtasks([f"Track {fav_song}" for fav_song in favorite_songs])
     for i, fav_song in enumerate(favorite_songs):
         report_progress(i, len(favorite_songs))
+        set_subtask_state(i, "active")
         try:
             song = get_song_infos_from_deezer_website(TYPE_TRACK, fav_song)
             try:
                 absolute_filename = download_song_and_get_absolute_filename(TYPE_PLAYLIST, song, output_directory)
                 songs_absolute_location.append(absolute_filename)
+                set_subtask_state(i, "done")
             except Exception as e:
                 print(f"Warning: {e}. Continuing with favorties...")
+                set_subtask_state(i, "failed", error=e)
         except (IndexError, Deezer403Exception, Deezer404Exception) as msg:
             print(msg)
             print(f"Could not find song ({fav_song}) on Deezer?")
+            set_subtask_state(i, "failed", error=msg)
     update_mpd_db(songs_absolute_location, add_to_playlist)
     songs_with_m3u8_file = create_m3u8_file(songs_absolute_location)
     if create_zip:

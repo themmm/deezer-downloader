@@ -22,13 +22,38 @@ STATE_ICON = {
     "failed": "dialog-error-symbolic",
 }
 
+# Subtasks use shorter state names; map them to the same icons.
+SUBTASK_ICON = {
+    "waiting": "preferences-system-time-symbolic",
+    "active": "media-playback-start-symbolic",
+    "done": "emblem-ok-symbolic",
+    "failed": "dialog-error-symbolic",
+}
 
-class _QueueRow(Adw.ActionRow):
-    """One row representing a QueuedTask. Reused across refreshes."""
+# Commands that report per-item progress via init_subtasks/set_subtask_state.
+EXPANDABLE_COMMANDS = {
+    "download_deezer_album_and_queue_and_zip",
+    "download_deezer_playlist_and_queue_and_zip",
+    "download_spotify_playlist_and_queue_and_zip",
+    "download_deezer_favorites",
+}
+
+
+class _QueueRow:
+    """Wraps a QueuedTask. Reused across refreshes."""
 
     def __init__(self, task):
-        super().__init__(title=task.description or task.fn_name)
         self._task = task
+        self._sub_rows: list[tuple[Adw.ActionRow, Gtk.Image]] = []
+
+        title = task.description or task.fn_name
+        if task.fn_name in EXPANDABLE_COMMANDS:
+            self._row = Adw.ExpanderRow(title=title)
+            self._is_expander = True
+        else:
+            self._row = Adw.ActionRow(title=title)
+            self._is_expander = False
+
         self._progress = Gtk.ProgressBar(
             valign=Gtk.Align.CENTER,
             show_text=False,
@@ -39,11 +64,22 @@ class _QueueRow(Adw.ActionRow):
             icon_name="preferences-system-time-symbolic",
             valign=Gtk.Align.CENTER,
         )
-        self.add_suffix(self._progress)
-        self.add_suffix(self._status_icon)
+        self._row.add_suffix(self._progress)
+        self._row.add_suffix(self._status_icon)
         self.update()
 
+    @property
+    def widget(self) -> Gtk.Widget:
+        return self._row
+
+    # --- Updates ----------------------------------------------------------
+
     def update(self) -> None:
+        self._update_main()
+        if self._is_expander:
+            self._sync_subtasks()
+
+    def _update_main(self) -> None:
         task = self._task
         state = task.state
         self._status_icon.set_from_icon_name(
@@ -55,7 +91,6 @@ class _QueueRow(Adw.ActionRow):
             if task.progress_maximum > 0:
                 fraction = min(1.0, task.progress / task.progress_maximum)
                 self._progress.set_fraction(fraction)
-                self._progress.pulse_step = 0.0
                 self._progress.set_visible(True)
                 subtitle = f"Active – {task.progress} / {task.progress_maximum}"
             else:
@@ -72,7 +107,37 @@ class _QueueRow(Adw.ActionRow):
         else:
             self._progress.set_visible(False)
 
-        self.set_subtitle(GLib.markup_escape_text(subtitle))
+        self._row.set_subtitle(GLib.markup_escape_text(subtitle))
+
+    def _sync_subtasks(self) -> None:
+        subtasks = self._task.subtasks or []
+
+        # Append rows for any new subtasks we haven't seen yet.
+        for i in range(len(self._sub_rows), len(subtasks)):
+            sub = subtasks[i]
+            sub_row = Adw.ActionRow(
+                title=GLib.markup_escape_text(sub["label"])
+            )
+            icon = Gtk.Image(
+                icon_name=SUBTASK_ICON.get(sub["state"],
+                                           "dialog-question-symbolic"),
+                valign=Gtk.Align.CENTER,
+            )
+            sub_row.add_suffix(icon)
+            self._row.add_row(sub_row)
+            self._sub_rows.append((sub_row, icon))
+
+        # Refresh state on existing rows.
+        for i, (sub_row, icon) in enumerate(self._sub_rows):
+            sub = subtasks[i]
+            icon.set_from_icon_name(
+                SUBTASK_ICON.get(sub["state"], "dialog-question-symbolic")
+            )
+            error = sub.get("error")
+            if error:
+                sub_row.set_subtitle(GLib.markup_escape_text(error))
+            else:
+                sub_row.set_subtitle("")
 
 
 class QueuePage(Gtk.Box):
@@ -121,14 +186,13 @@ class QueuePage(Gtk.Box):
 
         self._stack.set_visible_child_name("list")
 
-        # Add new rows for tasks we haven't seen.
         for task in tasks:
             key = id(task)
             row = self._rows.get(key)
             if row is None:
                 row = _QueueRow(task)
                 self._rows[key] = row
-                self._listbox.prepend(row)
+                self._listbox.prepend(row.widget)
             else:
                 row.update()
         return True
