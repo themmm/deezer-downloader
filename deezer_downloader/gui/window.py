@@ -1,4 +1,6 @@
 """Main application window (libadwaita)."""
+import re
+import threading
 from pathlib import Path
 
 import gi
@@ -8,12 +10,14 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, Gtk  # noqa: E402
 
-import re
-
 from deezer_downloader.gui.preferences import PreferencesDialog
 from deezer_downloader.gui.queue import QueuePage
 from deezer_downloader.gui.result_item import SearchResult
 from deezer_downloader.gui.search import SearchPage
+
+
+def _spawn_preload(target, *args) -> None:
+    threading.Thread(target=target, args=args, daemon=True).start()
 
 
 def _extract_first_number(text: str):
@@ -122,9 +126,12 @@ class MainWindow(Adw.ApplicationWindow):
         if _extract_first_number(raw) is None:
             self._toast("Could not find a playlist ID in the input")
             return
-        from deezer_downloader.web.music_backend import sched
+        from deezer_downloader.web.music_backend import (
+            preload_deezer_playlist,
+            sched,
+        )
         try:
-            sched.add_pending(
+            task = sched.add_pending(
                 f"Playlist: {raw}",
                 "download_deezer_playlist_and_queue_and_zip",
                 playlist_id=raw,
@@ -134,6 +141,7 @@ class MainWindow(Adw.ApplicationWindow):
         except Exception as exc:
             self._toast(f"Could not queue: {exc}")
             return
+        _spawn_preload(preload_deezer_playlist, task, raw)
         self._toast("Added playlist to queue")
 
     def _enqueue_favorites(self, raw: str) -> None:
@@ -144,9 +152,12 @@ class MainWindow(Adw.ApplicationWindow):
         if not user_id:
             self._toast("Could not determine your Deezer user id")
             return
-        from deezer_downloader.web.music_backend import sched
+        from deezer_downloader.web.music_backend import (
+            preload_deezer_favorites,
+            sched,
+        )
         try:
-            sched.add_pending(
+            task = sched.add_pending(
                 f"Favorites of user {user_id}",
                 "download_deezer_favorites",
                 user_id=user_id,
@@ -156,12 +167,16 @@ class MainWindow(Adw.ApplicationWindow):
         except Exception as exc:
             self._toast(f"Could not queue: {exc}")
             return
+        _spawn_preload(preload_deezer_favorites, task, user_id)
         self._toast(f"Added favorites of user {user_id} to queue")
 
     # --- Enqueue -----------------------------------------------------------
 
     def _enqueue_download(self, item: SearchResult) -> None:
-        from deezer_downloader.web.music_backend import sched
+        from deezer_downloader.web.music_backend import (
+            preload_deezer_album,
+            sched,
+        )
 
         try:
             if item.id_type == "track":
@@ -173,13 +188,14 @@ class MainWindow(Adw.ApplicationWindow):
                 )
                 msg = f"Added to queue: {item.title}"
             elif item.id_type == "album":
-                sched.add_pending(
+                task = sched.add_pending(
                     f"Album: {item.artist} – {item.album}",
                     "download_deezer_album_and_queue_and_zip",
                     album_id=int(item.id),
                     add_to_playlist=False,
                     create_zip=False,
                 )
+                _spawn_preload(preload_deezer_album, task, int(item.id))
                 msg = f"Added to queue: {item.album}"
             else:
                 return

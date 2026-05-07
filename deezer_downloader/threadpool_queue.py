@@ -169,6 +169,10 @@ class QueuedTask:
         # "error": str | None}. ``state`` is one of
         # waiting/active/done/failed/cancelled.
         self.subtasks = []
+        # Pre-resolved track data, populated by the GUI's background
+        # preloader so the user sees the track list before starting the
+        # download. The command then reuses this instead of re-fetching.
+        self.preload_data = None
 
     def exec(self):
         return self.fn(**self.kwargs)
@@ -196,6 +200,11 @@ def set_subtask_state(index, state, error=None):
     subtasks[index]["state"] = state
     if error is not None:
         subtasks[index]["error"] = str(error)
+
+
+def get_current_task():
+    """Return the task currently running on this worker thread, if any."""
+    return getattr(local_obj, "current_task", None)
 
 
 def is_cancelled() -> bool:

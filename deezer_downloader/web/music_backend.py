@@ -15,6 +15,7 @@ from deezer_downloader.deezer import get_file_extension
 from deezer_downloader.threadpool_queue import (
     ThreadpoolScheduler,
     clear_current_output_file,
+    get_current_task,
     init_subtasks,
     is_cancelled,
     report_progress,
@@ -22,6 +23,64 @@ from deezer_downloader.threadpool_queue import (
     set_subtask_state,
 )
 sched = ThreadpoolScheduler()
+
+
+def _favorites_label(fav_id) -> str:
+    return f"Track {fav_id}"
+
+
+def _populate_subtasks(task, labels):
+    """Replace the task's subtask list with fresh waiting entries. Used by
+    the background preloader so the GUI can show the track list before
+    the user clicks Start."""
+    task.subtasks = [
+        {"label": label, "state": "waiting", "error": None}
+        for label in labels
+    ]
+
+
+def _mark_preload_failed(task, exc):
+    if task.state == "pending":
+        task.state = "failed"
+        task.exception = exc
+
+
+def preload_deezer_album(task, album_id):
+    """Fetch the album's track list in the background and stash it on the
+    task so the user sees what they queued before pressing Start."""
+    try:
+        songs = get_song_infos_from_deezer_website(TYPE_ALBUM, album_id)
+    except Exception as exc:
+        _mark_preload_failed(task, exc)
+        return
+    if task.state != "pending":
+        return
+    task.preload_data = songs
+    _populate_subtasks(task, [_song_label(s, with_track_no=True) for s in songs])
+
+
+def preload_deezer_playlist(task, playlist_id):
+    try:
+        playlist_name, songs = parse_deezer_playlist(playlist_id)
+    except Exception as exc:
+        _mark_preload_failed(task, exc)
+        return
+    if task.state != "pending":
+        return
+    task.preload_data = (playlist_name, songs)
+    _populate_subtasks(task, [_song_label(s) for s in songs])
+
+
+def preload_deezer_favorites(task, user_id):
+    try:
+        favorites = get_deezer_favorites(user_id)
+    except Exception as exc:
+        _mark_preload_failed(task, exc)
+        return
+    if task.state != "pending":
+        return
+    task.preload_data = favorites
+    _populate_subtasks(task, [_favorites_label(f) for f in favorites or []])
 
 
 def check_download_dirs_exist():
@@ -187,8 +246,12 @@ def download_deezer_song_and_queue(track_id, add_to_playlist):
 
 @sched.register_command()
 def download_deezer_album_and_queue_and_zip(album_id, add_to_playlist, create_zip):
-    songs = get_song_infos_from_deezer_website(TYPE_ALBUM, album_id)
-    init_subtasks([_song_label(song, with_track_no=True) for song in songs])
+    task = get_current_task()
+    if task and task.preload_data is not None:
+        songs = task.preload_data
+    else:
+        songs = get_song_infos_from_deezer_website(TYPE_ALBUM, album_id)
+        init_subtasks([_song_label(song, with_track_no=True) for song in songs])
     songs_absolute_location = []
     for i, song in enumerate(songs):
         if is_cancelled():
@@ -213,8 +276,12 @@ def download_deezer_album_and_queue_and_zip(album_id, add_to_playlist, create_zi
 
 @sched.register_command()
 def download_deezer_playlist_and_queue_and_zip(playlist_id, add_to_playlist, create_zip):
-    playlist_name, songs = parse_deezer_playlist(playlist_id)
-    init_subtasks([_song_label(song) for song in songs])
+    task = get_current_task()
+    if task and task.preload_data is not None:
+        playlist_name, songs = task.preload_data
+    else:
+        playlist_name, songs = parse_deezer_playlist(playlist_id)
+        init_subtasks([_song_label(song) for song in songs])
     songs_absolute_location = []
     for i, song in enumerate(songs):
         if is_cancelled():
@@ -273,8 +340,12 @@ def download_youtubedl_and_queue(video_url, add_to_playlist):
 def download_deezer_favorites(user_id: str, add_to_playlist: bool, create_zip: bool):
     songs_absolute_location = []
     output_directory = f"favorites_{user_id}"
-    favorite_songs = get_deezer_favorites(user_id)
-    init_subtasks([f"Track {fav_song}" for fav_song in favorite_songs])
+    task = get_current_task()
+    if task and task.preload_data is not None:
+        favorite_songs = task.preload_data
+    else:
+        favorite_songs = get_deezer_favorites(user_id)
+        init_subtasks([_favorites_label(fav_song) for fav_song in favorite_songs])
     for i, fav_song in enumerate(favorite_songs):
         if is_cancelled():
             for j in range(i, len(favorite_songs)):
