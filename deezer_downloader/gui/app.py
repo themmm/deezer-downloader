@@ -42,6 +42,14 @@ class DeezerDownloaderApp(Adw.Application):
         self.add_action(prefs_action)
         self.set_accels_for_action("app.preferences", ["<Primary>comma"])
 
+        playlist_action = Gio.SimpleAction.new("playlist", None)
+        playlist_action.connect("activate", self._on_playlist)
+        self.add_action(playlist_action)
+
+        favorites_action = Gio.SimpleAction.new("favorites", None)
+        favorites_action.connect("activate", self._on_favorites)
+        self.add_action(favorites_action)
+
         if self._arl_missing:
             return
 
@@ -70,6 +78,14 @@ class DeezerDownloaderApp(Adw.Application):
     def _on_preferences(self, _action, _param):
         if self._window is not None:
             self._window.open_preferences()
+
+    def _on_playlist(self, _action, _param):
+        if self._window is not None and not self._arl_missing:
+            self._window.open_playlist_dialog()
+
+    def _on_favorites(self, _action, _param):
+        if self._window is not None and not self._arl_missing:
+            self._window.open_favorites_dialog()
 
     def _on_shutdown(self, _app):
         if self._workers_running:

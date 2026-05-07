@@ -46,6 +46,16 @@ def get_user_data() -> tuple[str, str]:
         print(f"ERROR: Could not get license token: {e}")
 
 
+def get_my_user_id() -> Optional[str]:
+    """Return the Deezer USER_ID of the currently logged-in (ARL) account."""
+    try:
+        resp = session.get('https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&input=3&api_version=1.0&api_token=')
+        user_id = resp.json()['results']['USER']['USER_ID']
+        return str(user_id) if user_id else None
+    except (requests.exceptions.RequestException, KeyError, ValueError):
+        return None
+
+
 # quality_config comes from config file
 # web_sound_quality is a dict coming from Deezer API and depends on ARL cookie (premium subscription)
 def set_song_quality(quality_config: str, web_sound_quality: dict):

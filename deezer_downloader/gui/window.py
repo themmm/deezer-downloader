@@ -8,6 +8,11 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, Gtk  # noqa: E402
 
+from deezer_downloader.gui.dialogs import (
+    extract_first_number,
+    prompt_favorites,
+    prompt_playlist,
+)
 from deezer_downloader.gui.preferences import PreferencesDialog
 from deezer_downloader.gui.queue import QueuePage
 from deezer_downloader.gui.result_item import SearchResult
@@ -69,6 +74,10 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_primary_menu_button(self) -> Gtk.MenuButton:
         menu = Gio.Menu()
+        downloads_section = Gio.Menu()
+        downloads_section.append("Download playlist…", "app.playlist")
+        downloads_section.append("Download favorites…", "app.favorites")
+        menu.append_section(None, downloads_section)
         menu.append("Preferences", "app.preferences")
         button = Gtk.MenuButton(
             icon_name="open-menu-symbolic",
@@ -101,6 +110,57 @@ class MainWindow(Adw.ApplicationWindow):
     def open_preferences(self) -> None:
         dialog = PreferencesDialog(self, self._config_path)
         dialog.present()
+
+    # --- Direct downloads --------------------------------------------------
+
+    def open_playlist_dialog(self) -> None:
+        prompt_playlist(self, self._enqueue_playlist)
+
+    def open_favorites_dialog(self) -> None:
+        prompt_favorites(self, self._enqueue_favorites)
+
+    def _enqueue_playlist(self, raw: str) -> None:
+        if not raw:
+            self._toast("Please enter a playlist URL or ID")
+            return
+        if extract_first_number(raw) is None:
+            self._toast("Could not find a playlist ID in the input")
+            return
+        from deezer_downloader.web.music_backend import sched
+        try:
+            sched.enqueue_task(
+                f"Playlist: {raw}",
+                "download_deezer_playlist_and_queue_and_zip",
+                playlist_id=raw,
+                add_to_playlist=False,
+                create_zip=False,
+            )
+        except Exception as exc:
+            self._toast(f"Could not queue: {exc}")
+            return
+        self._toast("Queued playlist")
+
+    def _enqueue_favorites(self, raw: str) -> None:
+        user_id = extract_first_number(raw) if raw else None
+        if user_id is None:
+            from deezer_downloader.deezer import get_my_user_id
+            user_id = get_my_user_id()
+        if not user_id:
+            self._toast("Could not determine your Deezer user id")
+            return
+        from deezer_downloader.web.music_backend import sched
+        try:
+            sched.enqueue_task(
+                f"Favorites of user {user_id}",
+                "download_deezer_favorites",
+                user_id=user_id,
+                add_to_playlist=False,
+                create_zip=False,
+            )
+        except Exception as exc:
+            self._toast(f"Could not queue: {exc}")
+            return
+        self._toast(f"Queued favorites of user {user_id}")
 
     # --- Enqueue -----------------------------------------------------------
 
