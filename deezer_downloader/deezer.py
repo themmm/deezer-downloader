@@ -56,6 +56,20 @@ def get_my_user_id() -> Optional[str]:
         return None
 
 
+def get_deezer_user_name(user_id: str) -> Optional[str]:
+    """Look up a Deezer user's display name via the public API."""
+    try:
+        resp = session.get(f"https://api.deezer.com/user/{user_id}", timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict) and "error" not in data:
+            name = data.get("name")
+            return name if name else None
+    except (requests.exceptions.RequestException, ValueError):
+        pass
+    return None
+
+
 # quality_config comes from config file
 # web_sound_quality is a dict coming from Deezer API and depends on ARL cookie (premium subscription)
 def set_song_quality(quality_config: str, web_sound_quality: dict):

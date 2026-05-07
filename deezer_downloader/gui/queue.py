@@ -54,7 +54,7 @@ class _QueueRow:
         self._on_remove = on_remove
         self._sub_rows: list[tuple[Adw.ActionRow, Gtk.Image]] = []
 
-        title = task.description or task.fn_name
+        title = GLib.markup_escape_text(task.description or task.fn_name)
         if task.fn_name in EXPANDABLE_COMMANDS:
             self._row = Adw.ExpanderRow(title=title)
             self._is_expander = True
@@ -105,6 +105,11 @@ class _QueueRow:
     def _update_main(self) -> None:
         task = self._task
         state = task.state
+
+        title = GLib.markup_escape_text(task.description or task.fn_name)
+        if self._row.get_title() != title:
+            self._row.set_title(title)
+
         self._status_icon.set_from_icon_name(
             STATE_ICON.get(state, "dialog-question-symbolic")
         )

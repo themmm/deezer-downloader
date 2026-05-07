@@ -68,6 +68,8 @@ def preload_deezer_playlist(task, playlist_id):
     if task.state != "pending":
         return
     task.preload_data = (playlist_name, songs)
+    if playlist_name:
+        task.description = f"Playlist: {playlist_name}"
     _populate_subtasks(task, [_song_label(s) for s in songs])
 
 
@@ -80,6 +82,10 @@ def preload_deezer_favorites(task, user_id):
     if task.state != "pending":
         return
     task.preload_data = favorites
+    from deezer_downloader.deezer import get_deezer_user_name
+    user_name = get_deezer_user_name(user_id)
+    if user_name:
+        task.description = f"Favorites of {user_name}"
     _populate_subtasks(task, [_favorites_label(f) for f in favorites or []])
 
 
