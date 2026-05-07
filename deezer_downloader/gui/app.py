@@ -37,6 +37,11 @@ class DeezerDownloaderApp(Adw.Application):
         self._config_path = ensure_config()
         self._arl_missing = _arl_is_unset(self._config_path)
 
+        prefs_action = Gio.SimpleAction.new("preferences", None)
+        prefs_action.connect("activate", self._on_preferences)
+        self.add_action(prefs_action)
+        self.set_accels_for_action("app.preferences", ["<Primary>comma"])
+
         if self._arl_missing:
             return
 
@@ -61,6 +66,10 @@ class DeezerDownloaderApp(Adw.Application):
                                       self._config_path,
                                       self._arl_missing)
         self._window.present()
+
+    def _on_preferences(self, _action, _param):
+        if self._window is not None:
+            self._window.open_preferences()
 
     def _on_shutdown(self, _app):
         if self._workers_running:

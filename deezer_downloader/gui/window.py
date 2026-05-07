@@ -1,14 +1,14 @@
 """Main application window (libadwaita)."""
 from pathlib import Path
-from typing import Optional
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, Gtk  # noqa: E402
 
+from deezer_downloader.gui.preferences import PreferencesDialog
 from deezer_downloader.gui.queue import QueuePage
 from deezer_downloader.gui.result_item import SearchResult
 from deezer_downloader.gui.search import SearchPage
@@ -26,11 +26,12 @@ class MainWindow(Adw.ApplicationWindow):
                          default_height=780,
                          title="Deezer Downloader")
 
+        self._config_path = config_path
         self._toast_overlay = Adw.ToastOverlay()
         toolbar = Adw.ToolbarView()
 
         if arl_missing:
-            toolbar.add_top_bar(Adw.HeaderBar())
+            toolbar.add_top_bar(self._build_minimal_header())
             toolbar.set_content(self._build_arl_warning(config_path))
             self._toast_overlay.set_child(toolbar)
             self.set_content(self._toast_overlay)
@@ -53,6 +54,7 @@ class MainWindow(Adw.ApplicationWindow):
             policy=Adw.ViewSwitcherPolicy.WIDE,
         )
         header.set_title_widget(switcher)
+        header.pack_end(self._build_primary_menu_button())
         toolbar.add_top_bar(header)
         toolbar.set_content(view_stack)
         self._toast_overlay.set_child(toolbar)
@@ -60,16 +62,45 @@ class MainWindow(Adw.ApplicationWindow):
 
     # --- Sub-views ---------------------------------------------------------
 
+    def _build_minimal_header(self) -> Adw.HeaderBar:
+        header = Adw.HeaderBar()
+        header.pack_end(self._build_primary_menu_button())
+        return header
+
+    def _build_primary_menu_button(self) -> Gtk.MenuButton:
+        menu = Gio.Menu()
+        menu.append("Preferences", "app.preferences")
+        button = Gtk.MenuButton(
+            icon_name="open-menu-symbolic",
+            tooltip_text="Main menu",
+            menu_model=menu,
+            primary=True,
+        )
+        return button
+
     def _build_arl_warning(self, config_path: Path) -> Gtk.Widget:
-        return Adw.StatusPage(
+        page = Adw.StatusPage(
             icon_name="dialog-warning-symbolic",
             title="Deezer cookie missing",
             description=(
-                "Edit the config file and set cookie_arl under [deezer], "
-                "then restart the app.\n\n"
-                f"{config_path}"
+                "Open Preferences and paste your ARL cookie under "
+                "Deezer → Account, then restart the app."
             ),
         )
+        button = Gtk.Button(
+            label="Open Preferences",
+            css_classes=["suggested-action", "pill"],
+            halign=Gtk.Align.CENTER,
+        )
+        button.connect("clicked", lambda _b: self.open_preferences())
+        page.set_child(button)
+        return page
+
+    # --- Preferences -------------------------------------------------------
+
+    def open_preferences(self) -> None:
+        dialog = PreferencesDialog(self, self._config_path)
+        dialog.present()
 
     # --- Enqueue -----------------------------------------------------------
 
