@@ -34,6 +34,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 deezer-downloader = 'deezer_downloader.cli.runner:main'
+deezer-downloader-gui = 'deezer_downloader.gui.app:main'
 
 [tool.setuptools.package-data]
 deezer_downloader = ["cli/settings.ini.template"]
