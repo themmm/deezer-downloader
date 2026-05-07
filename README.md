@@ -130,9 +130,11 @@ xdg-open http://localhost:5000
 
 ### Native desktop app (Linux / GTK4)
 
-Work in progress: a native GTK4 / libadwaita frontend that talks to the same
-download core as the web UI, without running an HTTP server in the
-background.
+A native GTK4 / libadwaita frontend that drives the same download core
+as the web UI, without running an HTTP server. Features search (tracks,
+albums, artists with top-tracks / albums drilldown), a live download
+queue with progress bars, and a preferences dialog that edits the INI
+in place.
 
 System dependencies (one-time):
 
@@ -159,9 +161,21 @@ python -m venv --system-site-packages .venv
 On first launch a default config is created at
 `$XDG_CONFIG_HOME/deezer-downloader/deezer-downloader.ini` (usually
 `~/.config/deezer-downloader/deezer-downloader.ini`) with a download
-directory at `~/Music/deezer-downloader`. You still need to fill in the
-`arl` cookie under `[deezer]` before downloads work — a settings dialog
-that handles this from the UI is on the roadmap.
+directory at `~/Music/deezer-downloader`. The first window will offer
+to open the preferences dialog so you can paste the `arl` cookie there;
+no manual INI editing required.
+
+To register the app in your application menu (icon, launcher, window
+grouping):
+
+```bash
+./data/install-desktop.sh
+# undo with: ./data/install-desktop.sh --uninstall
+```
+
+The script copies the `.desktop` entry and SVG icon into
+`$XDG_DATA_HOME` (default `~/.local/share`) and refreshes the desktop
+database / icon cache when available.
 
 The existing `deezer-downloader --config ...` server mode and the Docker
 image are unchanged.
