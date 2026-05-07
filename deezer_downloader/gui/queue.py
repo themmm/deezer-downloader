@@ -275,7 +275,7 @@ class QueuePage(Gtk.Box):
             if row is None:
                 row = _QueueRow(task, self._on_row_remove)
                 self._rows[key] = row
-                self._listbox.prepend(row.widget)
+                self._listbox.append(row.widget)
             else:
                 row.update()
 

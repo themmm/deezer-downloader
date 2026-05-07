@@ -42,8 +42,8 @@ class SearchPage(Gtk.Box):
 
     def _build_main_content(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        box.append(self._build_search_bar())
         box.append(self._build_direct_panel())
+        box.append(self._build_search_bar())
         box.append(self._build_results_view())
         return box
 
