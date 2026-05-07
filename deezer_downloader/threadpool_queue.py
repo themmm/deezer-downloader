@@ -1,9 +1,14 @@
+import os
 import threading
 import time
 from queue import Queue
 import traceback
 
 local_obj = threading.local()
+
+# Module-level stop flag set by stop_workers_now(); downloads check this
+# between tracks so they bail out fast on app shutdown.
+_global_stop = threading.Event()
 
 
 class ThreadpoolScheduler:
@@ -38,11 +43,35 @@ class ThreadpoolScheduler:
         return decorator
 
     def stop_workers(self):
+        """Graceful stop: signal workers to exit and wait for them. Used by
+        the long-running web server on atexit."""
         for i in range(len(self.worker_threads)):
             self.task_queue.put(False)
         for worker in self.worker_threads:
             worker.join()
         # print("All workers stopped")
+
+    def stop_workers_now(self):
+        """Immediate stop: flag the scheduler as stopping and remove any
+        partial files for currently active tasks. Workers are daemon
+        threads so the process exiting kills them; we do not join."""
+        _global_stop.set()
+        for _ in range(len(self.worker_threads)):
+            try:
+                self.task_queue.put_nowait(False)
+            except Exception:
+                pass
+        for task in self.all_tasks:
+            if task.state != "active":
+                continue
+            partial = getattr(task, "current_output_file", None)
+            if not partial:
+                continue
+            try:
+                if os.path.exists(partial):
+                    os.unlink(partial)
+            except OSError:
+                pass
 
 
 class WorkerThread(threading.Thread):
@@ -59,6 +88,9 @@ class WorkerThread(threading.Thread):
             if not task:
                 # print(f"Worker {self.index} is exiting")
                 return
+            if task.cancelled or _global_stop.is_set():
+                task.state = "cancelled"
+                continue
             # print(f"Worker {self.index} is now working on task: {task.kwargs}")
             task.state = "active"
             self.ts_started = time.time()
@@ -66,12 +98,20 @@ class WorkerThread(threading.Thread):
             local_obj.current_task = task
             try:
                 task.result = task.exec()
-                task.state = "mission accomplished"
+                if task.cancelled or _global_stop.is_set():
+                    task.state = "cancelled"
+                else:
+                    task.state = "mission accomplished"
             except Exception as ex:
                 print(traceback.format_exc())
                 print(f"Task {task.fn_name} failed with parameters '{task.kwargs}'\nReason: {ex}")
-                task.state = "failed"
-                task.exception = ex
+                if task.cancelled or _global_stop.is_set():
+                    task.state = "cancelled"
+                else:
+                    task.state = "failed"
+                    task.exception = ex
+            finally:
+                task.current_output_file = None
             self.ts_finished = time.time()
             # print(f"worker {self.index} is done with task: {task.kwargs} (state={task.state})")
 
@@ -90,9 +130,14 @@ class QueuedTask:
         self.ts_queued = time.time()
         self.ts_started = 0
         self.ts_finished = 0
+        self.cancelled = False
+        # Path of the file currently being written, if any. Used for
+        # partial-file cleanup on app shutdown.
+        self.current_output_file = None
         # Per-item state for tasks that download many things (album,
         # playlist, favorites). Each entry: {"label": str, "state": str,
-        # "error": str | None}. ``state`` is one of waiting/active/done/failed.
+        # "error": str | None}. ``state`` is one of
+        # waiting/active/done/failed/cancelled.
         self.subtasks = []
 
     def exec(self):
@@ -114,10 +159,30 @@ def init_subtasks(labels):
 
 
 def set_subtask_state(index, state, error=None):
-    """Update one subtask. ``state`` is one of waiting/active/done/failed."""
+    """Update one subtask. ``state`` is one of waiting/active/done/failed/cancelled."""
     subtasks = getattr(local_obj.current_task, "subtasks", None)
     if not subtasks or not (0 <= index < len(subtasks)):
         return
     subtasks[index]["state"] = state
     if error is not None:
         subtasks[index]["error"] = str(error)
+
+
+def is_cancelled() -> bool:
+    """Return True if the current task or the whole scheduler should stop."""
+    task = getattr(local_obj, "current_task", None)
+    if task is not None and task.cancelled:
+        return True
+    return _global_stop.is_set()
+
+
+def set_current_output_file(path: str) -> None:
+    task = getattr(local_obj, "current_task", None)
+    if task is not None:
+        task.current_output_file = path
+
+
+def clear_current_output_file() -> None:
+    task = getattr(local_obj, "current_task", None)
+    if task is not None:
+        task.current_output_file = None

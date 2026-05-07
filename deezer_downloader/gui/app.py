@@ -74,7 +74,7 @@ class DeezerDownloaderApp(Adw.Application):
     def _on_shutdown(self, _app):
         if self._workers_running:
             from deezer_downloader.web.music_backend import sched
-            sched.stop_workers()
+            sched.stop_workers_now()
             self._workers_running = False
 
 

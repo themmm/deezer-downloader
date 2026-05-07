@@ -14,8 +14,11 @@ from deezer_downloader.deezer import get_file_extension
 
 from deezer_downloader.threadpool_queue import (
     ThreadpoolScheduler,
+    clear_current_output_file,
     init_subtasks,
+    is_cancelled,
     report_progress,
+    set_current_output_file,
     set_subtask_state,
 )
 sched = ThreadpoolScheduler()
@@ -131,7 +134,11 @@ def download_song_and_get_absolute_filename(search_type, song, playlist_name=Non
         print("Skipping song '{}'. Already exists.".format(absolute_filename))
     else:
         print("Downloading '{}'".format(song_filename))
-        download_song(song, absolute_filename)
+        set_current_output_file(absolute_filename)
+        try:
+            download_song(song, absolute_filename)
+        finally:
+            clear_current_output_file()
     return absolute_filename
 
 
@@ -184,6 +191,10 @@ def download_deezer_album_and_queue_and_zip(album_id, add_to_playlist, create_zi
     init_subtasks([_song_label(song, with_track_no=True) for song in songs])
     songs_absolute_location = []
     for i, song in enumerate(songs):
+        if is_cancelled():
+            for j in range(i, len(songs)):
+                set_subtask_state(j, "cancelled")
+            break
         report_progress(i, len(songs))
         assert type(song) is dict
         set_subtask_state(i, "active")
@@ -206,6 +217,10 @@ def download_deezer_playlist_and_queue_and_zip(playlist_id, add_to_playlist, cre
     init_subtasks([_song_label(song) for song in songs])
     songs_absolute_location = []
     for i, song in enumerate(songs):
+        if is_cancelled():
+            for j in range(i, len(songs)):
+                set_subtask_state(j, "cancelled")
+            break
         report_progress(i, len(songs))
         set_subtask_state(i, "active")
         try:
@@ -261,6 +276,10 @@ def download_deezer_favorites(user_id: str, add_to_playlist: bool, create_zip: b
     favorite_songs = get_deezer_favorites(user_id)
     init_subtasks([f"Track {fav_song}" for fav_song in favorite_songs])
     for i, fav_song in enumerate(favorite_songs):
+        if is_cancelled():
+            for j in range(i, len(favorite_songs)):
+                set_subtask_state(j, "cancelled")
+            break
         report_progress(i, len(favorite_songs))
         set_subtask_state(i, "active")
         try:

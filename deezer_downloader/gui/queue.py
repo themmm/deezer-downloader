@@ -13,6 +13,7 @@ STATE_LABEL = {
     "active": "Active",
     "mission accomplished": "Done",
     "failed": "Failed",
+    "cancelled": "Cancelled",
 }
 
 STATE_ICON = {
@@ -20,7 +21,10 @@ STATE_ICON = {
     "active": "media-playback-start-symbolic",
     "mission accomplished": "emblem-ok-symbolic",
     "failed": "dialog-error-symbolic",
+    "cancelled": "process-stop-symbolic",
 }
+
+FINAL_STATES = {"mission accomplished", "failed", "cancelled"}
 
 # Subtasks use shorter state names; map them to the same icons.
 SUBTASK_ICON = {
@@ -28,6 +32,7 @@ SUBTASK_ICON = {
     "active": "media-playback-start-symbolic",
     "done": "emblem-ok-symbolic",
     "failed": "dialog-error-symbolic",
+    "cancelled": "process-stop-symbolic",
 }
 
 # Commands that report per-item progress via init_subtasks/set_subtask_state.
@@ -64,9 +69,20 @@ class _QueueRow:
             icon_name="preferences-system-time-symbolic",
             valign=Gtk.Align.CENTER,
         )
+        self._cancel_btn = Gtk.Button(
+            icon_name="process-stop-symbolic",
+            tooltip_text="Cancel",
+            valign=Gtk.Align.CENTER,
+            css_classes=["flat"],
+        )
+        self._cancel_btn.connect("clicked", self._on_cancel)
         self._row.add_suffix(self._progress)
         self._row.add_suffix(self._status_icon)
+        self._row.add_suffix(self._cancel_btn)
         self.update()
+
+    def _on_cancel(self, _button) -> None:
+        self._task.cancelled = True
 
     @property
     def widget(self) -> Gtk.Widget:
@@ -108,6 +124,9 @@ class _QueueRow:
             self._progress.set_visible(False)
 
         self._row.set_subtitle(GLib.markup_escape_text(subtitle))
+
+        cancellable = state not in FINAL_STATES and not task.cancelled
+        self._cancel_btn.set_visible(cancellable)
 
     def _sync_subtasks(self) -> None:
         subtasks = self._task.subtasks or []

@@ -1,3 +1,4 @@
+import os
 import sys
 import re
 import json
@@ -239,11 +240,18 @@ def download_song(song: dict, output_file: str) -> None:
             response.raise_for_status()
             with open(output_file, "w+b") as fo:
                 decryptfile(response, key, fo)
+    except Exception as e:
+        try:
+            if os.path.exists(output_file):
+                os.unlink(output_file)
+        except OSError:
+            pass
+        raise DeezerApiException(f"Could not write song to disk: {e}") from e
+
+    try:
         write_song_metadata(output_file, song, is_flac)
     except MutagenError as e:
         print(f"Warning: Could not write metadata to file: {e}")
-    except Exception as e:
-        raise DeezerApiException(f"Could not write song to disk: {e}") from e
     print("Download finished: {}".format(output_file))
 
 
