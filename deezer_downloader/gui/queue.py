@@ -1,10 +1,14 @@
 """Queue page: live view of the threadpool's tasks with progress."""
+from typing import Callable, Optional
+
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
+
+from deezer_downloader.gui.files import folder_for_task_result, open_path
 
 REFRESH_MS = 500
 
@@ -49,9 +53,12 @@ EXPANDABLE_COMMANDS = {
 class _QueueRow:
     """Wraps a QueuedTask. Reused across refreshes."""
 
-    def __init__(self, task, on_remove):
+    def __init__(self, task,
+                 on_remove: Callable,
+                 on_retry: Callable):
         self._task = task
         self._on_remove = on_remove
+        self._on_retry = on_retry
         self._sub_rows: list[tuple[Adw.ActionRow, Gtk.Image]] = []
 
         title = GLib.markup_escape_text(task.description or task.fn_name)
@@ -68,10 +75,40 @@ class _QueueRow:
             width_request=140,
         )
         self._progress.set_visible(False)
+
+        # The status indicator is a stack so we can swap a real GtkSpinner
+        # in for an icon while preload is running.
+        self._spinner = Gtk.Spinner(valign=Gtk.Align.CENTER)
         self._status_icon = Gtk.Image(
             icon_name="preferences-system-time-symbolic",
             valign=Gtk.Align.CENTER,
         )
+        self._status_stack = Gtk.Stack(
+            valign=Gtk.Align.CENTER,
+            transition_type=Gtk.StackTransitionType.CROSSFADE,
+        )
+        self._status_stack.add_named(self._status_icon, "icon")
+        self._status_stack.add_named(self._spinner, "spinner")
+        self._status_stack.set_visible_child_name("icon")
+
+        self._open_btn = Gtk.Button(
+            icon_name="folder-open-symbolic",
+            tooltip_text="Open in file manager",
+            valign=Gtk.Align.CENTER,
+            css_classes=["flat"],
+        )
+        self._open_btn.connect("clicked", self._on_open_clicked)
+        self._open_btn.set_visible(False)
+
+        self._retry_btn = Gtk.Button(
+            icon_name="view-refresh-symbolic",
+            tooltip_text="Retry failed tracks",
+            valign=Gtk.Align.CENTER,
+            css_classes=["flat"],
+        )
+        self._retry_btn.connect("clicked", self._on_retry_clicked)
+        self._retry_btn.set_visible(False)
+
         self._remove_btn = Gtk.Button(
             icon_name="window-close-symbolic",
             tooltip_text="Remove from queue",
@@ -79,13 +116,28 @@ class _QueueRow:
             css_classes=["flat"],
         )
         self._remove_btn.connect("clicked", self._on_remove_clicked)
+
         self._row.add_suffix(self._progress)
-        self._row.add_suffix(self._status_icon)
+        self._row.add_suffix(self._status_stack)
+        self._row.add_suffix(self._retry_btn)
+        self._row.add_suffix(self._open_btn)
         self._row.add_suffix(self._remove_btn)
         self.update()
 
+    # --- Suffix click handlers --------------------------------------------
+
     def _on_remove_clicked(self, _button) -> None:
         self._on_remove(self._task)
+
+    def _on_retry_clicked(self, _button) -> None:
+        self._on_retry(self._task)
+
+    def _on_open_clicked(self, _button) -> None:
+        folder = folder_for_task_result(self._task.result)
+        if folder:
+            open_path(folder)
+
+    # --- Public -----------------------------------------------------------
 
     @property
     def widget(self) -> Gtk.Widget:
@@ -95,12 +147,12 @@ class _QueueRow:
     def task(self):
         return self._task
 
-    # --- Updates ----------------------------------------------------------
-
     def update(self) -> None:
         self._update_main()
         if self._is_expander:
             self._sync_subtasks()
+
+    # --- Refresh ----------------------------------------------------------
 
     def _update_main(self) -> None:
         task = self._task
@@ -114,8 +166,24 @@ class _QueueRow:
             STATE_ICON.get(state, "dialog-question-symbolic")
         )
 
+        # Preload spinner: a multi-track task in pending state with no
+        # subtasks yet is being resolved by the preloader.
+        preloading = (
+            state == "pending"
+            and self._is_expander
+            and not (task.subtasks or [])
+        )
+        if preloading:
+            self._status_stack.set_visible_child_name("spinner")
+            self._spinner.start()
+        else:
+            self._status_stack.set_visible_child_name("icon")
+            self._spinner.stop()
+
         subtitle = STATE_LABEL.get(state, state)
-        if state == "active":
+        if preloading:
+            subtitle = "Resolving tracks…"
+        elif state == "active":
             if task.progress_maximum > 0:
                 fraction = min(1.0, task.progress / task.progress_maximum)
                 self._progress.set_fraction(fraction)
@@ -127,7 +195,7 @@ class _QueueRow:
                 subtitle = "Active"
         elif state == "mission accomplished":
             self._progress.set_visible(False)
-            subtitle = "Done"
+            subtitle = self._summary_subtitle() or "Done"
         elif state == "failed":
             self._progress.set_visible(False)
             err = str(task.exception) if task.exception else ""
@@ -136,6 +204,37 @@ class _QueueRow:
             self._progress.set_visible(False)
 
         self._row.set_subtitle(GLib.markup_escape_text(subtitle))
+
+        # Open-folder button: visible when the task finished and produced
+        # a real path on disk.
+        is_done = state == "mission accomplished"
+        self._open_btn.set_visible(
+            is_done and folder_for_task_result(task.result) is not None
+        )
+
+        # Retry button: only meaningful for multi-track tasks that are
+        # finished with at least one failed subtask.
+        self._retry_btn.set_visible(
+            state in FINAL_STATES
+            and self._is_expander
+            and any(s.get("state") == "failed" for s in (task.subtasks or []))
+        )
+
+    def _summary_subtitle(self) -> Optional[str]:
+        if not self._is_expander:
+            return None
+        subs = self._task.subtasks or []
+        if not subs:
+            return None
+        done = sum(1 for s in subs if s["state"] == "done")
+        failed = sum(1 for s in subs if s["state"] == "failed")
+        cancelled = sum(1 for s in subs if s["state"] == "cancelled")
+        bits = [f"{done}/{len(subs)} downloaded"]
+        if failed:
+            bits.append(f"{failed} failed")
+        if cancelled:
+            bits.append(f"{cancelled} skipped")
+        return " · ".join(bits)
 
     def _sync_subtasks(self) -> None:
         subtasks = self._task.subtasks or []
@@ -167,12 +266,17 @@ class _QueueRow:
 
 
 class QueuePage(Gtk.Box):
-    """Live list of all tasks ever submitted, newest first."""
+    """Live list of all tasks ever submitted, oldest on top."""
 
-    def __init__(self, on_toast=None):
+    def __init__(self, on_toast=None, on_completed=None, on_retry=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self._on_toast = on_toast or (lambda _msg: None)
+        self._on_completed = on_completed or (lambda _task: None)
+        self._on_retry = on_retry or (lambda _task: None)
 
+        # Per-task state we've already notified about so we only emit one
+        # completion event per task.
+        self._notified: set[int] = set()
         self._rows: dict[int, _QueueRow] = {}
 
         self.append(self._build_toolbar())
@@ -253,12 +357,15 @@ class QueuePage(Gtk.Box):
             sched.remove_task(task)
         self._prune_rows(sched)
 
-    # --- Per-row remove ---------------------------------------------------
+    # --- Per-row callbacks ------------------------------------------------
 
     def _on_row_remove(self, task) -> None:
         from deezer_downloader.web.music_backend import sched
         sched.remove_task(task)
         self._prune_rows(sched)
+
+    def _on_row_retry(self, task) -> None:
+        self._on_retry(task)
 
     # --- Refresh / sync ---------------------------------------------------
 
@@ -278,11 +385,16 @@ class QueuePage(Gtk.Box):
             key = id(task)
             row = self._rows.get(key)
             if row is None:
-                row = _QueueRow(task, self._on_row_remove)
+                row = _QueueRow(task, self._on_row_remove, self._on_row_retry)
                 self._rows[key] = row
                 self._listbox.append(row.widget)
             else:
                 row.update()
+
+            if task.state in FINAL_STATES and key not in self._notified:
+                self._notified.add(key)
+                if task.state == "mission accomplished":
+                    self._on_completed(task)
 
         self._prune_rows(sched)
         return True
@@ -303,3 +415,4 @@ class QueuePage(Gtk.Box):
                 continue
             row = self._rows.pop(key)
             self._listbox.remove(row.widget)
+            self._notified.discard(key)
