@@ -1,5 +1,7 @@
 """Linux desktop entry point: native GTK4 / libadwaita application."""
 import sys
+from configparser import ConfigParser
+from pathlib import Path
 
 import gi
 
@@ -11,6 +13,14 @@ from gi.repository import Adw, Gio  # noqa: E402
 from deezer_downloader.gui.config_io import ensure_config
 
 APP_ID = "me.androidloves.deezer-downloader"
+ARL_PLACEHOLDER = "[a-f0-9]{192}"
+
+
+def _arl_is_unset(config_path: Path) -> bool:
+    parser = ConfigParser()
+    parser.read(config_path)
+    arl = parser.get("deezer", "cookie_arl", fallback="").strip()
+    return arl == "" or arl == ARL_PLACEHOLDER
 
 
 class DeezerDownloaderApp(Adw.Application):
@@ -19,19 +29,44 @@ class DeezerDownloaderApp(Adw.Application):
                          flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self._window = None
         self._config_path = None
+        self._arl_missing = False
+        self._workers_running = False
 
     def do_startup(self):
         Adw.Application.do_startup(self)
         self._config_path = ensure_config()
+        self._arl_missing = _arl_is_unset(self._config_path)
+
+        if self._arl_missing:
+            return
 
         from deezer_downloader.configuration import load_config
         load_config(str(self._config_path))
 
+        from deezer_downloader.deezer import init_deezer_session
+        from deezer_downloader.configuration import config
+        init_deezer_session(config["proxy"]["server"],
+                            config["deezer"]["quality"])
+
+        from deezer_downloader.web.music_backend import sched
+        sched.run_workers(config.getint("threadpool", "workers"))
+        self._workers_running = True
+
+        self.connect("shutdown", self._on_shutdown)
+
     def do_activate(self):
         if self._window is None:
             from deezer_downloader.gui.window import MainWindow
-            self._window = MainWindow(self, self._config_path)
+            self._window = MainWindow(self,
+                                      self._config_path,
+                                      self._arl_missing)
         self._window.present()
+
+    def _on_shutdown(self, _app):
+        if self._workers_running:
+            from deezer_downloader.web.music_backend import sched
+            sched.stop_workers()
+            self._workers_running = False
 
 
 def main() -> int:
