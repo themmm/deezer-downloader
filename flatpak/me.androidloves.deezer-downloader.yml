@@ -1,6 +1,6 @@
 app-id: me.androidloves.deezer-downloader
 runtime: org.gnome.Platform
-runtime-version: '47'
+runtime-version: '50'
 sdk: org.gnome.Sdk
 command: deezer-downloader-gui
 
@@ -26,10 +26,8 @@ cleanup:
   - '*.a'
 
 modules:
-  # Python runtime deps. We let pip fetch them at build time; this keeps
-  # the manifest small at the cost of an online build. For a Flathub
-  # submission later, replace this module with a flatpak-pip-generator
-  # output that pins every wheel by hash.
+  # Python runtime deps. We let pip fetch them at build time; this is
+  # fine for local builds (not hermetic, not Flathub-ready).
   - name: python-deps
     buildsystem: simple
     build-options:

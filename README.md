@@ -180,20 +180,20 @@ database / icon cache when available.
 The existing `deezer-downloader --config ...` server mode and the Docker
 image are unchanged.
 
-#### Flatpak
+#### Flatpak (local build)
 
 If you'd rather run the GUI in a sandbox with its own GTK4 / libadwaita
 runtime (no system PyGObject install or `--system-site-packages` venv
 needed):
 
 ```bash
-flatpak install --user flathub org.gnome.Platform//47 org.gnome.Sdk//47
-flatpak-builder --user --install --force-clean \
-    build-flatpak flatpak/me.androidloves.deezer-downloader.yml
+flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50
+flatpak/build.sh
 flatpak run me.androidloves.deezer-downloader
 ```
 
-Build instructions, permissions and caveats are documented in
+This builds and installs the Flatpak for the current user only.
+Permissions, caveats and uninstall instructions are in
 [`flatpak/README.md`](flatpak/README.md).
 
 ### Run with Vagrant

@@ -9,3 +9,6 @@ dist
 *.sh
 .venv
 *.ini
+# flatpak-builder scratch directories
+.flatpak-builder/
+build-flatpak/
