@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>me.androidloves.deezer-downloader</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-or-later</project_license>
+  <name>Deezer Downloader</name>
+  <summary>Search and download music from Deezer</summary>
+  <description>
+    <p>
+      A native GTK4 / libadwaita desktop frontend for deezer-downloader.
+      Search Deezer for tracks, albums and artists, drill down into an
+      artist's top tracks or full album list, paste a public playlist URL
+      or download your loved tracks, then start a queue of downloads and
+      watch them complete track by track.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Search Deezer for tracks, albums and artists</li>
+      <li>Drill down into an artist's top tracks or albums</li>
+      <li>Download public Deezer playlists by URL or ID</li>
+      <li>Download your account's loved tracks</li>
+      <li>Queue with per-track progress, cancel and retry</li>
+      <li>Live preferences for ARL cookie, quality, download folder and proxy</li>
+    </ul>
+    <p>
+      Requires a valid Deezer ARL cookie. A free Deezer account is enough
+      for 128 kbit/s MP3 downloads; FLAC and 320 kbit/s require a premium
+      subscription.
+    </p>
+  </description>
+  <launchable type="desktop-id">me.androidloves.deezer-downloader.desktop</launchable>
+  <url type="homepage">https://github.com/themmm/deezer-downloader</url>
+  <url type="bugtracker">https://github.com/themmm/deezer-downloader/issues</url>
+  <developer id="me.androidloves">
+    <name>themmm</name>
+  </developer>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Music</category>
+  </categories>
+  <keywords>
+    <keyword>music</keyword>
+    <keyword>deezer</keyword>
+    <keyword>download</keyword>
+    <keyword>mp3</keyword>
+    <keyword>flac</keyword>
+  </keywords>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="2.12.0" date="2026-05-16">
+      <description>
+        <p>Initial native GTK4 desktop frontend.</p>
+      </description>
+    </release>
+  </releases>
+  <requires>
+    <display_length compare="ge">640</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+</component>

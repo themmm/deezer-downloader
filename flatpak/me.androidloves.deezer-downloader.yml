@@ -1,0 +1,63 @@
+app-id: me.androidloves.deezer-downloader
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+command: deezer-downloader-gui
+
+# Permissions handed to the sandbox at runtime.
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Write downloads under ~/Music/deezer-downloader by default.
+  - --filesystem=xdg-music
+  # Surface 'Download complete' notifications via the FDO portal.
+  - --talk-name=org.freedesktop.Notifications
+  # System look-and-feel.
+  - --filesystem=xdg-config/gtk-4.0:ro
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.la'
+  - '*.a'
+
+modules:
+  # Python runtime deps. We let pip fetch them at build time; this keeps
+  # the manifest small at the cost of an online build. For a Flathub
+  # submission later, replace this module with a flatpak-pip-generator
+  # output that pins every wheel by hash.
+  - name: python-deps
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - >-
+        pip3 install --no-build-isolation --prefix=/app
+        'poetry-core>=1.6' 'requests[socks]>=2.28' 'pycryptodome>=3.16'
+        'mutagen>=1.47' 'python-mpd2>=3.0' 'pyotp>=2.9' 'yt-dlp'
+    sources: []
+
+  # The app itself. The repo root is mounted in via type=dir so this
+  # picks up your local working tree; bump to type=git for reproducible
+  # builds.
+  - name: deezer-downloader
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - pip3 install --no-build-isolation --no-deps --prefix=/app .
+      - install -Dm644 data/applications/me.androidloves.deezer-downloader.desktop
+        -t /app/share/applications/
+      - install -Dm644 data/icons/me.androidloves.deezer-downloader.svg
+        /app/share/icons/hicolor/scalable/apps/me.androidloves.deezer-downloader.svg
+      - install -Dm644 data/metainfo/me.androidloves.deezer-downloader.metainfo.xml
+        -t /app/share/metainfo/
+    sources:
+      - type: dir
+        path: ..
