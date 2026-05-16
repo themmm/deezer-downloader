@@ -11,6 +11,10 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402
 from deezer_downloader.gui.files import folder_for_task_result, open_path
 
 REFRESH_MS = 500
+# Cap newly-created rows per refresh tick. Bulk adds (e.g. 'Add all' on a
+# 100-album artist drilldown) would otherwise build every Adw.ExpanderRow
+# in one main-loop iteration and visibly freeze the UI.
+MAX_NEW_ROWS_PER_TICK = 5
 
 STATE_LABEL = {
     "pending": "Pending",
@@ -381,13 +385,20 @@ class QueuePage(Gtk.Box):
 
         self._stack.set_visible_child_name("list")
 
+        new_rows_this_tick = 0
         for task in tasks:
             key = id(task)
             row = self._rows.get(key)
             if row is None:
-                row = _QueueRow(task, self._on_row_remove, self._on_row_retry)
-                self._rows[key] = row
-                self._listbox.append(row.widget)
+                if new_rows_this_tick >= MAX_NEW_ROWS_PER_TICK:
+                    # Defer creating this row to a later tick; finished-state
+                    # notifications below still fire so we never miss them.
+                    pass
+                else:
+                    row = _QueueRow(task, self._on_row_remove, self._on_row_retry)
+                    self._rows[key] = row
+                    self._listbox.append(row.widget)
+                    new_rows_this_tick += 1
             else:
                 row.update()
 

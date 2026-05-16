@@ -9,7 +9,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gio, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from deezer_downloader.gui.files import open_path
 from deezer_downloader.gui.preferences import PreferencesDialog
@@ -338,27 +338,41 @@ class MainWindow(Adw.ApplicationWindow):
         # 'skipped' is silent (e.g. artist rows have no enqueue action)
 
     def _enqueue_bulk(self, items: list) -> None:
-        added = 0
-        duplicates = 0
-        errors = 0
-        for item in items:
-            if item is None:
-                continue
-            status, _ = self._try_enqueue(item)
+        items = [it for it in items if it is not None]
+        if not items:
+            self._toast("Nothing to add")
+            return
+
+        self._toast(f"Adding {len(items)} item{'s' if len(items) != 1 else ''}…")
+
+        state = {"i": 0, "added": 0, "duplicates": 0, "errors": 0}
+
+        def step():
+            idx = state["i"]
+            if idx >= len(items):
+                parts = []
+                if state["added"]:
+                    parts.append(f"{state['added']} added")
+                if state["duplicates"]:
+                    parts.append(f"{state['duplicates']} already in queue")
+                if state["errors"]:
+                    parts.append(f"{state['errors']} failed")
+                if parts:
+                    self._toast(" · ".join(parts))
+                return False
+            status, _ = self._try_enqueue(items[idx])
             if status == "added":
-                added += 1
+                state["added"] += 1
             elif status == "duplicate":
-                duplicates += 1
+                state["duplicates"] += 1
             elif status == "error":
-                errors += 1
-        parts = []
-        if added:
-            parts.append(f"{added} added")
-        if duplicates:
-            parts.append(f"{duplicates} already in queue")
-        if errors:
-            parts.append(f"{errors} failed")
-        self._toast(" · ".join(parts) if parts else "Nothing to add")
+                state["errors"] += 1
+            state["i"] += 1
+            return True
+
+        # idle_add yields between each item so the main loop can paint and
+        # process input, keeping the UI responsive even on large batches.
+        GLib.idle_add(step)
 
     # --- Duplicate detection ----------------------------------------------
 
