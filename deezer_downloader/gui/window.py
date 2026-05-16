@@ -1,7 +1,7 @@
 """Main application window (libadwaita)."""
+import json
 import re
 import threading
-from configparser import ConfigParser
 from pathlib import Path
 
 import gi
@@ -30,27 +30,27 @@ def _extract_first_number(text: str):
     return match.group(0) if match else None
 
 
+def _window_state_path(config_path: Path) -> Path:
+    return config_path.parent / "window-state.json"
+
+
 def _read_window_size(config_path: Path) -> tuple[int, int]:
-    parser = ConfigParser()
-    parser.read(config_path)
     try:
-        w = parser.getint("gui", "width", fallback=DEFAULT_WIDTH)
-        h = parser.getint("gui", "height", fallback=DEFAULT_HEIGHT)
-    except (ValueError, KeyError):
+        data = json.loads(_window_state_path(config_path).read_text())
+        w = int(data.get("width", DEFAULT_WIDTH))
+        h = int(data.get("height", DEFAULT_HEIGHT))
+    except (OSError, ValueError, json.JSONDecodeError, TypeError):
         return DEFAULT_WIDTH, DEFAULT_HEIGHT
     return max(640, w), max(480, h)
 
 
 def _write_window_size(config_path: Path, width: int, height: int) -> None:
-    parser = ConfigParser()
-    parser.read(config_path)
-    if "gui" not in parser:
-        parser["gui"] = {}
-    parser["gui"]["width"] = str(width)
-    parser["gui"]["height"] = str(height)
+    state_file = _window_state_path(config_path)
     try:
-        with config_path.open("w") as fh:
-            parser.write(fh)
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_file.write_text(
+            json.dumps({"width": int(width), "height": int(height)})
+        )
     except OSError:
         pass
 
