@@ -84,6 +84,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._search = SearchPage(
             on_enqueue=self._enqueue_download,
+            on_enqueue_bulk=self._enqueue_bulk,
             on_playlist=self._enqueue_playlist,
             on_favorites=self._enqueue_favorites,
         )
@@ -285,34 +286,34 @@ class MainWindow(Adw.ApplicationWindow):
 
     # --- Enqueue from search ----------------------------------------------
 
-    def _enqueue_download(self, item: SearchResult) -> None:
+    def _try_enqueue(self, item: SearchResult) -> tuple[str, str]:
+        """Enqueue one search result without emitting a toast. Returns
+        (status, label). Status is one of 'added', 'duplicate', 'skipped'
+        or 'error'."""
         from deezer_downloader.web.music_backend import (
             preload_deezer_album,
             sched,
         )
-
         try:
             if item.id_type == "track":
                 if self._is_duplicate(
                     "download_deezer_song_and_queue",
                     track_id=int(item.id),
                 ):
-                    self._toast("Already in queue")
-                    return
+                    return "duplicate", item.title
                 sched.add_pending(
                     f"Track: {item.artist} – {item.title}",
                     "download_deezer_song_and_queue",
                     track_id=int(item.id),
                     add_to_playlist=False,
                 )
-                msg = f"Added to queue: {item.title}"
-            elif item.id_type == "album":
+                return "added", item.title
+            if item.id_type == "album":
                 if self._is_duplicate(
                     "download_deezer_album_and_queue_and_zip",
                     album_id=int(item.id),
                 ):
-                    self._toast("Already in queue")
-                    return
+                    return "duplicate", item.album
                 task = sched.add_pending(
                     f"Album: {item.artist} – {item.album}",
                     "download_deezer_album_and_queue_and_zip",
@@ -321,13 +322,43 @@ class MainWindow(Adw.ApplicationWindow):
                     create_zip=False,
                 )
                 _spawn_preload(preload_deezer_album, task, int(item.id))
-                msg = f"Added to queue: {item.album}"
-            else:
-                return
+                return "added", item.album
+            return "skipped", ""
         except Exception as exc:
-            self._toast(f"Could not queue: {exc}")
-            return
-        self._toast(msg)
+            return "error", str(exc)
+
+    def _enqueue_download(self, item: SearchResult) -> None:
+        status, label = self._try_enqueue(item)
+        if status == "added":
+            self._toast(f"Added to queue: {label}")
+        elif status == "duplicate":
+            self._toast("Already in queue")
+        elif status == "error":
+            self._toast(f"Could not queue: {label}")
+        # 'skipped' is silent (e.g. artist rows have no enqueue action)
+
+    def _enqueue_bulk(self, items: list) -> None:
+        added = 0
+        duplicates = 0
+        errors = 0
+        for item in items:
+            if item is None:
+                continue
+            status, _ = self._try_enqueue(item)
+            if status == "added":
+                added += 1
+            elif status == "duplicate":
+                duplicates += 1
+            elif status == "error":
+                errors += 1
+        parts = []
+        if added:
+            parts.append(f"{added} added")
+        if duplicates:
+            parts.append(f"{duplicates} already in queue")
+        if errors:
+            parts.append(f"{errors} failed")
+        self._toast(" · ".join(parts) if parts else "Nothing to add")
 
     # --- Duplicate detection ----------------------------------------------
 

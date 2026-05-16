@@ -24,10 +24,12 @@ class SearchPage(Gtk.Box):
 
     def __init__(self,
                  on_enqueue: Callable[[SearchResult], None],
+                 on_enqueue_bulk: Callable[[list], None],
                  on_playlist: Callable[[str], None],
                  on_favorites: Callable[[str], None]):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self._on_enqueue = on_enqueue
+        self._on_enqueue_bulk = on_enqueue_bulk
         self._on_playlist = on_playlist
         self._on_favorites = on_favorites
         self._store = Gio.ListStore.new(SearchResult)
@@ -271,6 +273,18 @@ class SearchPage(Gtk.Box):
         sub_header = Adw.HeaderBar()
         sub_header.set_show_start_title_buttons(False)
         sub_header.set_show_end_title_buttons(False)
+
+        add_all_btn = Gtk.Button(
+            label="Add all",
+            tooltip_text="Add everything below to the queue",
+            css_classes=["suggested-action"],
+            sensitive=False,
+        )
+        add_all_btn.connect(
+            "clicked", lambda _b: self._enqueue_store(sub_store)
+        )
+        sub_header.pack_end(add_all_btn)
+
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(sub_header)
         toolbar.set_content(sub_stack)
@@ -281,22 +295,22 @@ class SearchPage(Gtk.Box):
         threading.Thread(
             target=self._do_drilldown,
             args=(artist.id, search_type, sub_store, sub_stack,
-                  sub_status, kind_label, artist.artist),
+                  sub_status, kind_label, artist.artist, add_all_btn),
             daemon=True,
         ).start()
 
     def _do_drilldown(self, artist_id, search_type, store, stack, status,
-                      kind_label, artist_name) -> None:
+                      kind_label, artist_name, add_all_btn) -> None:
         from deezer_downloader.deezer import deezer_search
         try:
             results = deezer_search(artist_id, search_type)
         except Exception as exc:
             results = exc
         GLib.idle_add(self._apply_drilldown, results, store, stack, status,
-                      kind_label, artist_name)
+                      kind_label, artist_name, add_all_btn)
 
     def _apply_drilldown(self, results, store, stack, status,
-                         kind_label, artist_name) -> bool:
+                         kind_label, artist_name, add_all_btn) -> bool:
         if isinstance(results, Exception):
             status.set_icon_name("dialog-error-symbolic")
             status.set_title("Failed to load")
@@ -311,7 +325,12 @@ class SearchPage(Gtk.Box):
             for raw in results:
                 store.append(SearchResult(raw))
             stack.set_visible_child_name("results")
+            add_all_btn.set_sensitive(True)
         return False
+
+    def _enqueue_store(self, store: Gio.ListStore) -> None:
+        items = [store.get_item(i) for i in range(store.get_n_items())]
+        self._on_enqueue_bulk(items)
 
     # --- Covers -----------------------------------------------------------
 
